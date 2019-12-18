@@ -1,0 +1,260 @@
+http://supervisord.org
+
+Supervisor: A Process Control System.
+We can
+* Monitor services and processes
+* Monitor process uptime status
+* Start/Stop/Restart process
+
+
+--------------------------
+
+
+yum install -y python-setuptools
+
+easy_install supervisor
+
+
+
+
+# create directory for supervisor logs
+mkdir /var/log/supervisor
+
+
+# create directory for supervisor configs
+mkdir -p /etc/supervisor/conf.d
+
+# create config directory for supervisor
+cat <<EOT >> /etc/supervisor/supervisord.conf
+; supervisor config file
+
+[unix_http_server]
+file=/var/run/supervisor.sock   ; (the path to the socket file)
+chmod=0700                       ; sockef file mode (default 0700)
+
+[supervisord]
+logfile=/var/log/supervisor/supervisord.log ; (main log file;default $CWD/supervisord.log)
+pidfile=/var/run/supervisord.pid ; (supervisord pidfile;default supervisord.pid)
+childlogdir=/var/log/supervisor            ; ('AUTO' child log dir, default $TEMP)
+
+; the below section must remain in the config file for RPC
+; (supervisorctl/web interface) to work, additional interfaces may be
+; added by defining them in separate rpcinterface: sections
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+[supervisorctl]
+serverurl=unix:///var/run/supervisor.sock ; use a unix:// URL  for a unix socket
+
+; The [include] section can just contain the "files" setting.  This
+; setting can list multiple files (separated by whitespace or
+; newlines).  It can also contain wildcards.  The filenames are
+; interpreted as relative to this file.  Included files *cannot*
+; include files themselves.
+
+[include]
+files = /etc/supervisor/conf.d/*.conf
+[inet_http_server]
+port=*:9001
+username=admin
+password=admin
+EOT
+
+# create systemctl service script
+cat <<EOT >> /lib/systemd/system/supervisord.service
+[Unit]
+Description=Supervisor process control system for UNIX
+Documentation=http://supervisord.org
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
+ExecStop=/usr/bin/supervisorctl $OPTIONS shutdown
+ExecReload=/usr/bin/supervisorctl -c /etc/supervisor/supervisord.conf $OPTIONS reload
+KillMode=process
+Restart=on-failure
+RestartSec=50s
+
+[Install]
+WantedBy=multi-user.target
+EOT
+
+
+
+--------------------------------
+
+yum install httpd
+
+
+
+
+https://www.linode.com/docs/databases/mysql/how-to-install-mysql-on-centos-7/
+
+wget http://repo.mysql.com/mysql-community-release-el7-5.noarch.rpm
+sudo rpm -ivh mysql-community-release-el7-5.noarch.rpm
+yum update
+sudo yum install mysql-server -y
+
+
+
+########## Install NodeJS ##########
+
+
+curl -sL https://rpm.nodesource.com/setup_10.x | sudo bash -
+
+
+########## Docker Installation ##########
+
+
+curl -fsSL https://get.docker.com/ | sh
+
+systemctl start docker
+
+___________
+
+[root@node01 node_app]# cat package.json 
+{
+  "name": "demo_app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.17.1"
+  }
+}
+[root@node01 node_app]# cat index.js 
+const express = require('express')
+const app = express()
+const port = 3000
+
+var os = require("os");
+var hostname = os.hostname();
+
+app.get('/', (req, res) => res.send('Hello World! <h1 style="color:red;">Demo App Version 1<h1> <br>'))
+
+app.get('/api',(req,res)=>{
+    res.json({title:"api",message:"root", host:hostname});
+})
+app.listen(port, () => console.log(`Example app listening on port ${port}!`))
+[root@node01 node_app]# 
+
+
+
+[root@node01 node_app]# supervisorctl 
+Server requires authentication
+Username:admin
+Password:
+
+httpd                            RUNNING   pid 23476, uptime 0:01:24
+nodejs                           RUNNING   pid 23498, uptime 0:00:34
+supervisor> ?
+
+default commands (type help <topic>):
+=====================================
+add    exit      open  reload  restart   start   tail   
+avail  fg        pid   remove  shutdown  status  update 
+clear  maintail  quit  reread  signal    stop    version
+
+supervisor> stop ?
+?: ERROR (no such process)
+supervisor> stop nodejs
+nodejs: stopped
+supervisor> start nodejs
+nodejs: started
+supervisor> tail nodejs
+Warning: sys.stdout.encoding is set to ANSI_X3.4-1968, so Unicode output may fail. Check your LANG and PYTHONIOENCODING environment settings.
+Example app listening on port 3000!
+Example app listening on port 3000!
+Example app listening on port 3000!
+
+supervisor> status 
+httpd                            STOPPED   Dec 16 10:37 PM
+nodejs                           STOPPED   Dec 16 10:37 PM
+supervisor> start  all
+httpd: started
+nodejs: started
+supervisor> status 
+httpd                            RUNNING   pid 23517, uptime 0:00:03
+nodejs                           RUNNING   pid 23518, uptime 0:00:03
+supervisor> exit
+
+
+--------
+DOCKER FILE
+
+# Version: 0.0.1
+FROM mhart/alpine-node:12
+LABEL maintainer="devopsabi@gmail.com"
+ENV REFRESHED_AT 2019-11-30
+COPY node_app /app
+WORKDIR "/app"
+RUN npm install
+RUN apk add supervisor
+RUN apk add bash
+WORKDIR "/etc/supervisor/conf.d"
+ADD blog.conf /etc/supervisor/conf.d
+ADD supervisord.conf /etc/supervisor/
+WORKDIR "/app"
+CMD ["./start.sh"]
+
+
+[root@node01 ~]# cat node_app/start.sh 
+#!/bin/bash
+mkdir -p /var/log/supervisor/
+touch  /var/log/supervisor/supervisord.log
+/usr/bin/python /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf 
+[root@node01 ~]# 
+
+
+
+
+[root@node01 ~]# cat supervisord.conf 
+; supervisor config file
+
+[unix_http_server]
+file=/var/run/supervisor.sock   ; (the path to the socket file)
+chmod=0700                       ; sockef file mode (default 0700)
+
+[supervisord]
+logfile=/var/log/supervisor/supervisord.log ; (main log file;default $CWD/supervisord.log)
+pidfile=/var/run/supervisord.pid ; (supervisord pidfile;default supervisord.pid)
+childlogdir=/var/log/supervisor            ; ('AUTO' child log dir, default $TEMP)
+
+; the below section must remain in the config file for RPC
+; (supervisorctl/web interface) to work, additional interfaces may be
+; added by defining them in separate rpcinterface: sections
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+[supervisorctl]
+serverurl=unix:///var/run/supervisor.sock ; use a unix:// URL  for a unix socket
+
+; The [include] section can just contain the "files" setting.  This
+; setting can list multiple files (separated by whitespace or
+; newlines).  It can also contain wildcards.  The filenames are
+; interpreted as relative to this file.  Included files *cannot*
+; include files themselves.
+
+[include]
+files = /etc/supervisor/conf.d/*.conf
+[inet_http_server]
+port=*:9001
+username=admin
+password=admin
+[root@node01 ~]# 
+
+
+
+[root@node01 ~]# cat blog.conf 
+[program:nodejs]
+command=/usr/bin/node index.js
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/nodeapp_supervisor.err.log
+stdout_logfile=/var/log/nodeapp_supervisor.out.log
+[root@node01 ~]# 
